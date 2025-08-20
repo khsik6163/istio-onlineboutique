@@ -1,0 +1,15 @@
+apiVersion: telemetry.istio.io/v1alpha1
+kind: ProxyConfig
+metadata:
+  name: tracing-config
+  namespace: istio-system
+spec:
+  tracing:
+    sampling: 100.0
+    customTags:
+      cluster_name:
+        environment:
+          name: CLUSTER_NAME
+    zipkin:
+      address: jaeger-collector.istio-system.svc.cluster.local:9411
+

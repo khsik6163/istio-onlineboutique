@@ -1,0 +1,18 @@
+# istio-operator-proxyconfig.yaml
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  namespace: istio-system
+  name: istio-control-plane
+spec:
+  meshConfig:
+    defaultConfig:
+      tracing:
+        sampling: 100.0
+        zipkin:
+          address: jaeger-collector.istio-system.svc.cluster.local:9411
+  values:
+    pilot:
+      env:
+        ENABLE_PROXY_CONFIG: "true"
+
