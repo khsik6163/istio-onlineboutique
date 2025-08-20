@@ -1,0 +1,46 @@
+# save as gw-vs.yaml
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: boutique-gw
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port: { number: 80, name: http, protocol: HTTP }
+    hosts: ["shop.local"]
+    tls: { httpsRedirect: true }   # HTTP 접근 시 HTTPS로 리다이렉트
+  - port: { number: 443, name: https, protocol: HTTPS }
+    hosts: ["shop.local"]
+    tls:
+      mode: SIMPLE
+      credentialName: shop-credential
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: boutique-vs
+  namespace: boutique
+spec:
+  hosts: ["shop.local"]
+  gateways: ["istio-system/boutique-gw"]
+  http:
+  # 경로/헤더 기반 라우팅 샘플: /api/*는 frontend로 그대로, 나머지도 frontend
+  - match:
+    - uri: { prefix: "/api" }
+    route:
+    - destination:
+        host: frontend.boutique.svc.cluster.local
+        port: { number: 80 }
+  - route:
+    - destination:
+        host: frontend.boutique.svc.cluster.local
+        port: { number: 80 }
+    timeout: 2s
+    retries:
+      attempts: 3
+      perTryTimeout: 1s
+      retryOn: "5xx,connect-failure,reset"
+
+
