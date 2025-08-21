@@ -1,0 +1,22 @@
+# B-jwt-auth/jwt-authz.yaml
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: ingress-allow-jwt
+  namespace: istio-system          # ← 중요: ingressgateway와 동일 ns
+spec:
+  selector:
+    matchLabels:
+     app: istio-ingressgateway
+  action: ALLOW
+  rules:
+  - when:
+    - key: request.auth.claims[iss]
+      values: ["testing@secure.istio.io"]
+
+  - from:
+    - source:
+        requestPrincipals: ["testing@secure.istio.io/*"]
+  - to:
+    - operation:
+        paths: ["/_healthz"]
