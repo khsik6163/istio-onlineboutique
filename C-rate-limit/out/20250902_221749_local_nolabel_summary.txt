@@ -1,0 +1,9 @@
+== Summary ==
+mode      : local
+host      : shop.local
+path      : /
+requests  : 100
+
+code  count  percent
+200   49     49.00%
+429   51     51.00%

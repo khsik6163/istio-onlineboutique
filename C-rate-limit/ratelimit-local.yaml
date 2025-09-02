@@ -1,0 +1,45 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: gw-local-rl
+  namespace: istio-system
+spec:
+  priority: 100
+  workloadSelector:
+    labels:
+      istio: ingressgateway
+  configPatches:
+  - applyTo: HTTP_FILTER
+    match:
+      context: GATEWAY
+      listener:
+        portNumber: 8443
+        filterChain:
+          sni: shop.local
+          filter:
+            name: envoy.filters.network.http_connection_manager
+            subFilter:
+              # 맨 마지막 라우터 필터 바로 앞에 끼워넣는다
+              name: envoy.filters.http.router
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        name: envoy.filters.http.local_ratelimit
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+          stat_prefix: gw_local_rl
+          token_bucket:
+            # 필요시 환경변수/값으로 바꿔도 됨
+            max_tokens: 20
+            tokens_per_fill: 10
+            fill_interval: 1s
+          enable_x_ratelimit_headers: DRAFT_VERSION_03
+          filter_enabled:
+            runtime_key: local_rate_limit_enabled
+            default_value: { numerator: 100, denominator: HUNDRED }
+          filter_enforced:
+            runtime_key: local_rate_limit_enforced
+            default_value: { numerator: 100, denominator: HUNDRED }
+          response_headers_to_add:
+          - header: { key: x-local-rate-limit, value: "true" }
+

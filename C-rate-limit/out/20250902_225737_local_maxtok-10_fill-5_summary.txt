@@ -1,0 +1,12 @@
+== Summary ==
+mode      : local
+host      : shop.local
+path      : /
+requests  : 200
+MAX_TOKENS: 10
+FILL_RATE : 5
+
+code  count  percent
+200   11     5.50%
+429   124    62.00%
+500   65     32.50%
