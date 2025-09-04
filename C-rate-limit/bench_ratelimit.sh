@@ -1,144 +1,103 @@
 #!/usr/bin/env bash
-# bench_ratelimit.sh - Istio Ingress rate-limit 응답 코드 분포 측정기
-# Usage examples:
-#   ./bench_ratelimit.sh -m local -n 200
-#   ./bench_ratelimit.sh -m incluster -n 200
-# 옵션: -m {local|incluster} -n 요청수 -P 경로 -H 호스트명 -o 출력디렉토리
-# 환경변수로 라벨링: MAX_TOKENS, FILL_RATE 등 (리포트 파일명에 기록)
-
 set -euo pipefail
 
-MODE="local"                  # local | incluster
-REQS=100
-HOST="shop.local"
-PATH_URI="/"
-ISTIO_NS="istio-system"
-SLEEP_NS="default"
-OUTDIR="./out"
-PORT="8443"                   # local 모드에서 로컬 수신포트
-SVC_NAME="istio-ingressgateway"
-
-log() { echo "[$(date +'%F %T')] $*"; }
-
-usage() {
-  grep '^#' "$0" | sed 's/^# \{0,1\}//'
-  exit 1
-}
-
-while getopts ":m:n:P:H:o:" opt; do
-  case "$opt" in
-    m) MODE="$OPTARG" ;;
-    n) REQS="$OPTARG" ;;
-    P) PATH_URI="$OPTARG" ;;
-    H) HOST="$OPTARG" ;;
-    o) OUTDIR="$OPTARG" ;;
-    *) usage ;;
-  esac
-done
+# ---- 설정 ----
+REQS="${REQS:-100}"           # 총 요청 수 (기본 100)
+CONCURRENCY="${CONCURRENCY:-20}"  # 동시성
+HOST="${HOST:-shop.local}"
+PORT="${PORT:-8443}"
+PATH_="${PATH_:-/}"           # 경로 (예: /api)
+OUTDIR="${OUTDIR:-./out}"
+MODE="${MODE:-local}"         # 라벨용
 
 mkdir -p "$OUTDIR"
 
-TIMESTAMP="$(date +'%Y%m%d_%H%M%S')"
-LABELS=""
-[[ -n "${MAX_TOKENS:-}" ]] && LABELS+="_maxtok-${MAX_TOKENS}"
-[[ -n "${FILL_RATE:-}"  ]] && LABELS+="_fill-${FILL_RATE}"
-[[ -z "$LABELS" ]] && LABELS="_nolabel"
+ts() { date +"%Y%m%d_%H%M%S"; }
+log() { echo "[$(date '+%F %T')] $*"; }
 
-RAW_FILE="$OUTDIR/${TIMESTAMP}_${MODE}${LABELS}_codes.txt"
-CSV_FILE="$OUTDIR/${TIMESTAMP}_${MODE}${LABELS}_summary.csv"
-SUM_FILE="$OUTDIR/${TIMESTAMP}_${MODE}${LABELS}_summary.txt"
+# ---- 포트포워딩 정리/시작 ----
+pkill -f "port-forward.*${PORT}" 2>/dev/null || true
+sleep 0.3
+log "starting port-forward 127.0.0.1:${PORT} -> istio-ingressgateway:443"
+kubectl -n istio-system port-forward svc/istio-ingressgateway "${PORT}:443" --address 127.0.0.1 \
+  > /tmp/pf_igw_${PORT}.log 2>&1 &
+PF_PID=$!
+sleep 1
 
-summarize() {
-  local infile="$1"
-  local total
-  total=$(wc -l < "$infile" | awk '{print $1}')
-  if [[ "$total" -eq 0 ]]; then
-    echo "no data" > "$SUM_FILE"
-    return
-  fi
+# 살아있는지 확인
+if ! lsof -n -iTCP:${PORT} -sTCP:LISTEN >/dev/null 2>&1; then
+  log "port-forward failed. log:"
+  cat /tmp/pf_igw_${PORT}.log || true
+  exit 1
+fi
 
-  {
-    echo "code,count,percent"
-    awk '{a[$1]++} END{for(k in a) printf "%s,%d,%.2f%%\n", k, a[k], (a[k]/t*100)}' t="$total" "$infile" \
-      | sort -t, -k1
-  } > "$CSV_FILE"
+# ---- 단일 헬스체크 ----
+if ! CODE=$(curl -sk --max-time 5 \
+  --http1.1 --no-keepalive \
+  --resolve "${HOST}:${PORT}:127.0.0.1" \
+  "https://${HOST}:${PORT}${PATH_}" -o /dev/null -w "%{http_code}"); then
+  log "single request failed. pf log:"
+  tail -n +1 /tmp/pf_igw_${PORT}.log || true
+  kill ${PF_PID} 2>/dev/null || true
+  exit 1
+fi
+log "single request => ${CODE}"
 
-  {
-    echo "== Summary =="
-    echo "mode      : $MODE"
-    echo "host      : $HOST"
-    echo "path      : $PATH_URI"
-    echo "requests  : $total"
-    [[ -n "${MAX_TOKENS:-}" ]] && echo "MAX_TOKENS: $MAX_TOKENS"
-    [[ -n "${FILL_RATE:-}"  ]] && echo "FILL_RATE : $FILL_RATE"
-    echo
-    column -t -s, "$CSV_FILE"
-  } > "$SUM_FILE"
+# ---- 부하 전송 ----
+STAMP=$(ts)
+CODES_FILE="${OUTDIR}/${STAMP}_${MODE}_codes.txt"
+SUMMARY_TXT="${OUTDIR}/${STAMP}_${MODE}_summary.txt"
+SUMMARY_CSV="${OUTDIR}/${STAMP}_${MODE}_summary.csv"
 
-  log "saved raw: $RAW_FILE"
-  log "saved csv: $CSV_FILE"
-  log "saved txt: $SUM_FILE"
-  log "quick view:"
-  cat "$SUM_FILE"
-}
+log "sending ${REQS} requests to https://${HOST}:${PORT}${PATH_} (c=${CONCURRENCY})"
 
-pf_pid=""
-pf_start() {
-  # local 모드: 8443 → ingress 443 포트포워딩
-  log "starting port-forward 127.0.0.1:$PORT -> $SVC_NAME:443"
-  kubectl -n "$ISTIO_NS" port-forward "svc/$SVC_NAME" "$PORT:443" --address 127.0.0.1 >/tmp/pf_igw.log 2>&1 &
-  pf_pid=$!
-  sleep 1
-  if ! kill -0 "$pf_pid" 2>/dev/null; then
-    log "port-forward failed. log:"
-    tail -n +1 /tmp/pf_igw.log || true
-    exit 1
-  fi
-}
+# xargs 병렬로 안전하게 전송
+# - 각 요청은 독립 커넥션/세션 (--no-keepalive, --http1.1)
+# - 실패 시도 0으로 만들지 않도록 --max-time 추가
+seq 1 "${REQS}" | xargs -I{} -P "${CONCURRENCY}" \
+  curl -sk --max-time 5 \
+    --http1.1 --no-keepalive \
+    --resolve "${HOST}:${PORT}:127.0.0.1" \
+    "https://${HOST}:${PORT}${PATH_}" \
+    -o /dev/null -w "%{http_code}\n" \
+  > "${CODES_FILE}"
 
-pf_stop() {
-  [[ -n "${pf_pid:-}" ]] && kill "$pf_pid" 2>/dev/null || true
-}
+# ---- 요약 ----
+TOTAL=$(wc -l < "${CODES_FILE}")
+OK=$(grep -c '^200$' "${CODES_FILE}" || true)
+RL=$(grep -c '^429$' "${CODES_FILE}" || true)
+OTH=$(( TOTAL - OK - RL ))
 
-run_local() {
-  # /etc/hosts 에 127.0.0.1 shop.local 있어야 함.
-  pf_start
-  trap pf_stop EXIT
+pct() { awk -v a="$1" -v b="$2" 'BEGIN{ if(b==0) print "0.00"; else printf "%.2f", (a/b)*100 }'; }
 
-  local url="https://${HOST}:${PORT}${PATH_URI}"
-  log "sending $REQS requests to ${url}"
-  : > "$RAW_FILE"
-  for i in $(seq 1 "$REQS"); do
-    curl -sk -o /dev/null -w "%{http_code}\n" "$url" >> "$RAW_FILE" || echo "000" >> "$RAW_FILE"
-  done
-}
+PCT_OK=$(pct "$OK" "$TOTAL")
+PCT_RL=$(pct "$RL" "$TOTAL")
+PCT_OTH=$(pct "$OTH" "$TOTAL")
 
-run_incluster() {
-  # 클러스터 내부에서 SNI=HOST 로 HTTPS. --resolve로 ClusterIP 바인딩
-  local ip
-  ip=$(kubectl -n "$ISTIO_NS" get svc "$SVC_NAME" -o jsonpath='{.spec.clusterIP}')
-  if [[ -z "$ip" ]]; then
-    log "failed to get ClusterIP of $SVC_NAME"
-    exit 1
-  fi
-  local S
-  S=$(kubectl -n "$SLEEP_NS" get pod -l app=sleep -o jsonpath='{.items[0].metadata.name}')
-  if [[ -z "$S" ]]; then
-    log "sleep pod not found in ns=$SLEEP_NS"
-    exit 1
-  fi
+{
+  echo "== Summary =="
+  echo "mode      : ${MODE}"
+  echo "host      : ${HOST}"
+  echo "path      : ${PATH_}"
+  echo "requests  : ${TOTAL}"
+  echo
+  echo "code  count  percent"
+  printf "200   %-6d %s%%\n" "${OK}" "${PCT_OK}"
+  printf "429   %-6d %s%%\n" "${RL}" "${PCT_RL}"
+  printf "other %-6d %s%%\n" "${OTH}" "${PCT_OTH}"
+} | tee "${SUMMARY_TXT}" >/dev/null
 
-  log "in-cluster test via sleep pod: SNI=$HOST, resolve $HOST:443 -> $ip"
-  kubectl -n "$SLEEP_NS" exec "$S" -c sleep -- sh -lc \
-    "for i in \$(seq 1 $REQS); do curl -sk --resolve $HOST:443:$ip https://$HOST$PATH_URI -o /dev/null -w \"%{http_code}\n\" || echo 000; done" \
-    > "$RAW_FILE"
-}
+{
+  echo "code,count,percent"
+  echo "200,${OK},${PCT_OK}"
+  echo "429,${RL},${PCT_RL}"
+  echo "other,${OTH},${PCT_OTH}"
+} > "${SUMMARY_CSV}"
 
-case "$MODE" in
-  local)     run_local ;;
-  incluster) run_incluster ;;
-  *) log "unknown mode: $MODE"; usage ;;
-esac
+log "saved raw: ${CODES_FILE}"
+log "saved txt: ${SUMMARY_TXT}"
+log "saved csv: ${SUMMARY_CSV}"
 
-summarize "$RAW_FILE"
+# ---- 정리 ----
+kill ${PF_PID} 2>/dev/null || true
 

@@ -30,8 +30,8 @@ spec:
           stat_prefix: gw_local_rl
           token_bucket:
             # 필요시 환경변수/값으로 바꿔도 됨
-            max_tokens: 20
-            tokens_per_fill: 10
+            max_tokens: 10
+            tokens_per_fill: 5
             fill_interval: 1s
           enable_x_ratelimit_headers: DRAFT_VERSION_03
           filter_enabled:

@@ -1,0 +1,94 @@
+# gw-local-rl-cart-currency.yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: gw-local-rl-cart-currency
+  namespace: istio-system
+spec:
+  workloadSelector:
+    labels:
+      istio: ingressgateway
+  configPatches:
+  # (A) router 앞에 LocalRateLimit 필터 삽입(이미 있다면 생략 가능)
+  - applyTo: HTTP_FILTER
+    match:
+      context: GATEWAY
+      listener:
+        filterChain:
+          filter:
+            name: envoy.filters.network.http_connection_manager
+            subFilter:
+              name: envoy.filters.http.router
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        name: envoy.filters.http.local_ratelimit
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+          stat_prefix: http_local_rate_limiter
+          filter_enabled:
+            default_value: { numerator: 0, denominator: HUNDRED }   # 기본 비활성
+          filter_enforced:
+            default_value: { numerator: 100, denominator: HUNDRED }
+          response_headers_to_add:
+          - header: { key: x-local-rl, value: "default" }
+            append_action: APPEND_IF_EXISTS_OR_ADD
+
+  # (B) /api/cart 전용(예: 강하게)
+  - applyTo: HTTP_ROUTE
+    match:
+      context: GATEWAY
+      routeConfiguration:
+        name: https.443.https.boutique-gw.istio-system   # 네 환경 값
+        vhost:
+          name: shop.local:443                           # 네 환경 값
+          route:
+            name: api-cart
+    patch:
+      operation: MERGE
+      value:
+        typed_per_filter_config:
+          envoy.filters.http.local_ratelimit:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+            stat_prefix: rl_api_cart
+            token_bucket:
+              max_tokens: 10
+              tokens_per_fill: 10
+              fill_interval: 1s
+            filter_enabled:
+              default_value: { numerator: 100, denominator: HUNDRED }
+            filter_enforced:
+              default_value: { numerator: 100, denominator: HUNDRED }
+            response_headers_to_add:
+            - header: { key: x-local-rl, value: "api-cart" }
+              append_action: OVERWRITE_IF_EXISTS
+
+  # (C) /api/currency 전용(예: 느슨하게)
+  - applyTo: HTTP_ROUTE
+    match:
+      context: GATEWAY
+      routeConfiguration:
+        name: https.443.https.boutique-gw.istio-system
+        vhost:
+          name: shop.local:443
+          route:
+            name: api-currency
+    patch:
+      operation: MERGE
+      value:
+        typed_per_filter_config:
+          envoy.filters.http.local_ratelimit:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+            stat_prefix: rl_api_currency
+            token_bucket:
+              max_tokens: 50
+              tokens_per_fill: 50
+              fill_interval: 1s
+            filter_enabled:
+              default_value: { numerator: 100, denominator: HUNDRED }
+            filter_enforced:
+              default_value: { numerator: 100, denominator: HUNDRED }
+            response_headers_to_add:
+            - header: { key: x-local-rl, value: "api-currency" }
+              append_action: OVERWRITE_IF_EXISTS
+
