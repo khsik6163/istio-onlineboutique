@@ -1,0 +1,13 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/http/0/fault",
+    "value": {
+      "abort": {
+        "httpStatus": 500,
+        "percentage": { "value": 50 }
+      }
+    }
+  }
+]
+

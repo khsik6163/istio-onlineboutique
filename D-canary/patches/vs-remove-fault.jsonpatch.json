@@ -1,0 +1,4 @@
+[
+  { "op": "remove", "path": "/spec/http/0/fault" }
+]
+

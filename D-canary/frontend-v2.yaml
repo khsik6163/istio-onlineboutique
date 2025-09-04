@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-v2
+  namespace: boutique
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: frontend
+        version: v2
+    spec:
+      containers:
+      - name: server
+        # 기존 frontend와 동일 이미지 사용
+        image: gcr.io/google-samples/microservices-demo/frontend:v0.8.4
+        ports:
+        - containerPort: 8080
+---
+# (선택) v1 라벨 강제 표준화: 현재 frontend 디플로이먼트 파드에 version=v1 라벨이 없다면 아래 패치를 적용
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: boutique
+spec:
+  template:
+    metadata:
+      labels:
+        version: v1
+
