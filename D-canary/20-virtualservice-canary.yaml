@@ -19,11 +19,19 @@ spec:
         subset: v1
         port:
           number: 80
-      weight: 100
+      weight: 100        # 초기엔 v1=100
+      headers:
+        response:
+          add:
+            x-version: "v1"
     - destination:
         host: frontend-external.boutique.svc.cluster.local
         subset: v2
         port:
           number: 80
       weight: 0
+      headers:
+        response:
+          add:
+            x-version: "v2"
 
