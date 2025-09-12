@@ -1,0 +1,17 @@
+# frontend-external.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-external
+  namespace: boutique
+  labels:
+    app: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+
