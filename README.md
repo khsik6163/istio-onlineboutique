@@ -51,24 +51,8 @@ Google **Online Boutique** 샘플 애플리케이션을 기반으로 **Istio Ser
 ---
 
 ## 빠른 시작(Quick Start)
-> 이미 클러스터/Istio/Addons가 준비되어 있다는 가정. (없다면 각 단계 README의 “사전 준비”를 참고)
 
-1) **애드온 포트포워딩**
-```bash
-kubectl -n istio-system port-forward svc/prometheus 9090:9090 &
-kubectl -n istio-system port-forward svc/grafana    3000:3000 &
-kubectl -n istio-system port-forward svc/kiali      20001:20001 &
-kubectl -n istio-system port-forward svc/tracing    16686:80 &
-# Grafana: http://localhost:3000  / Kiali: http://localhost:20001 / Jaeger: http://localhost:16686/jaeger
-```
-
-2) **Online Boutique 배포** (예: `boutique` 네임스페이스)
-```bash
-kubectl create ns boutique || true
-kubectl label ns boutique istio-injection=enabled --overwrite
-kubectl -n boutique apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/microservices-demo/main/release/kubernetes-manifests.yaml
-kubectl -n boutique rollout status deploy/frontend --timeout=300s
-```
+(./_archive) 의 run_basic_setting.sh 실행
 
 3) **각 단계 적용**  
 - 게이트웨이/TLS → [`A-gateway/`](./A-gateway)  
@@ -119,32 +103,6 @@ kubectl -n boutique rollout status deploy/frontend --timeout=300s
 - **Kiali**: 서비스 그래프(트래픽 애니메이션/지연/비율), 각 서비스의 **Traffic Policies**(DR/VS 인식)  
 - **Jaeger**: 요청 트레이스(지연/에러 스팬), 헤더 기반 Fault 시각화  
 - **Prometheus**: 라벨 구조(`destination_service` vs `destination_service_name/namespace`)를 먼저 확인하고 쿼리 작성
-
-> **라벨 확인 팁 (Explore/Instant):**  
-> `label_values(istio_requests_total, destination_service)`  
-> `label_values(istio_requests_total, destination_service_name)`  
-> `label_values(istio_requests_total, destination_workload)`
-
----
-
-## 유용한 스크립트
-- **아웃라이어 자동 퇴출 검증**: `E-lb-outlier/verify-outlier.sh`  
-  - v2에 에러 트래픽 집중 → Envoy Admin JSON에서 **subset=v2 활성 호스트=0** 판정 → **PASS/FAIL** 출력
-- (옵션) Makefile 타겟으로 검증/재시작/정리 등을 구성하면 CI에도 쉽게 연결 가능
-
----
-
-## 트러블슈팅 체크리스트
-- [ ] **사이드카 주입**: 대상 Pod에 `istio-proxy` 컨테이너 존재  
-- [ ] **DNS/hosts**: `shop.local`이 Ingress IP/포트로 정확히 연결  
-- [ ] **TLS Secret 네임스페이스**: `istio-system`에 `shop-credential` 생성  
-- [ ] **JWT 필드**: `issuer`, `audience`, `jwksUri` 일치  
-- [ ] **EnvoyFilter 매칭**: HCM 단계/Route 이름(vhost/routeName) 정확 매칭  
-- [ ] **카나리 Fault**: 헤더 기반 매치(테스트 트래픽만 영향), `retries: { attempts: 0 }`  
-- [ ] **Outlier 확인**:  
-  - `istioctl pc clusters/endpoints`는 **subset 클러스터명**으로 조회  
-  - Grafana는 **라벨 구조**에 맞춰 PromQL 수정(`destination_service` ↔ `destination_service_name/namespace`)  
-
 ---
 
 ## 기여자
