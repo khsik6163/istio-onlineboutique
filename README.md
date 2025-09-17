@@ -2,7 +2,7 @@
 
 Google **Online Boutique** 샘플 애플리케이션을 기반으로 **Istio Service Mesh 1.26.x**의 핵심 기능을 단계별(A~E)로 실험·검증한 졸업 작품 저장소입니다.  
 게이트웨이/TLS, JWT 인증·인가, 로컬 레이트리밋, 카나리 배포+오류주입, 아웃라이어 감지(자동 퇴출)까지 **운영 시나리오**를 실제 트래픽/대시보드로 확인할 수 있습니다.
-
+[노션 링크](https://www.notion.so/21b808fc218d80868d48cb2c7331defc?source=copy_link)
 ---
 
 ## 목차
@@ -52,7 +52,7 @@ Google **Online Boutique** 샘플 애플리케이션을 기반으로 **Istio Ser
 
 ## 빠른 시작(Quick Start)
 
-(./_archive) 의 run_basic_setting.sh 실행
+['_archive'](./_archive) 의 [run_basic_setting.sh](run_basic_setting.sh) 실행
 
 3) **각 단계 적용**  
 - 게이트웨이/TLS → [`A-gateway/`](./A-gateway)  
