@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpbin-v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: httpbin
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: httpbin
+        version: v1
+    spec:
+      containers:
+      - name: httpbin
+        image: docker.io/kennethreitz/httpbin
+        ports:
+        - containerPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpbin-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: httpbin
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: httpbin
+        version: v2
+    spec:
+      containers:
+      - name: httpbin
+        image: docker.io/kennethreitz/httpbin
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin
+spec:
+  selector:
+    app: httpbin
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: httpbin-dr
+spec:
+  host: httpbin.default.svc.cluster.local
+  trafficPolicy:
+    # 아웃라이어 감지 설정
+    outlierDetection:
+      # 연속 5xx 에러 1회 발생 시 이젝션
+      consecutive5xxErrors: 1
+      # 감지 간격 1초
+      interval: 1s
+      # 기본 이젝션 시간 30초
+      baseEjectionTime: 30s
+      # 최대 이젝션 비율 100%
+      maxEjectionPercent: 100
+  subsets:
+  - name: v1
+    labels:
+      version: v1
+  - name: v2
+    labels:
+      version: v2
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: httpbin-vs
+spec:
+  # httpbin 서비스의 호스트 지정
+  hosts:
+  - "httpbin.default.svc.cluster.local"
+  http:
+  # 1. 'x-err: 1' 헤더가 있을 경우 v2 서브셋으로 라우팅하며 500 응답으로 URI 재작성
+  - name: to-v2-500
+    match:
+    - headers:
+        x-err:
+          exact: "1"
+    rewrite:
+      uri: /status/500 # v2로 요청을 보내기 전에 500 응답을 반환하도록 httpbin 경로 재작성
+    route:
+    - destination:
+        host: httpbin.default.svc.cluster.local
+        subset: v2
+        port:
+          number: 8000
+  # 2. 기본 라우팅: 헤더 조건이 없으면 v1 서브셋으로 라우팅하며 200 응답으로 URI 재작성
+  - name: to-v1-200
+    rewrite:
+      uri: /status/200 # v1로 요청을 보내기 전에 200 응답을 반환하도록 httpbin 경로 재작성
+    route:
+    - destination:
+        host: httpbin.default.svc.cluster.local
+        subset: v1
+        port:
+          number: 8000
