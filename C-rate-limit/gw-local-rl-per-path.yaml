@@ -39,9 +39,9 @@ spec:
     match:
       context: GATEWAY
       routeConfiguration:
-        name: https.443.https.boutique-gw.istio-system   # 네 환경 값
+        name: https.443.https.boutique-gw.istio-system   # 내 환경 값
         vhost:
-          name: shop.local:443                           # 네 환경 값
+          name: shop.local:443                           # 내 환경 값
           route:
             name: api-cart
     patch:
