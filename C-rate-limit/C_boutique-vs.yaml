@@ -1,3 +1,4 @@
+#경로별 제한용 vs
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
